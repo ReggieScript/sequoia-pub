@@ -12,11 +12,11 @@ from scipy import stats
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from evaluation.CorrelationStats import dependent_corr
+from CorrelationStats import dependent_corr
 
 if __name__=='__main__':
     
-    model_dir = 'model_path'
+    model_dir = '/Users/reginacrespo/Documents/Biostadistics and data Science/Thesis/master-thesis/data/test2_results/fiveSlidesTest'
     folds = 5
     cancers = ['brca', 'coad', 'gbm', 'kirp', 'kirc', 'luad', 'lusc', 'paad', 
               'prad', 'skcm', 'thca', 'ucec', 'hnsc', 'stad', 'blca', 'lihc']    
@@ -124,8 +124,8 @@ if __name__=='__main__':
             combine_res['cancer'] = cancer_type
             df_list.append(combine_res)
 
-        except:
-            print(f'no data for {cancer_type}')
+        except Exception as e:
+            print(f'no data for {cancer_type}: {e}')
 
     all_res = pd.concat(df_list)
     sig_res = all_res[(all_res['pred_real_r'] > 0) & \

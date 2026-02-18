@@ -3,10 +3,14 @@ import json
 import argparse
 import pdb
 from tqdm import tqdm
+import sys
 
 import numpy as np
 import h5py
 from sklearn.cluster import KMeans
+
+# Add parent directory to path so imports work regardless of where script is called from
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from src.read_data import *
 from src.utils import exists

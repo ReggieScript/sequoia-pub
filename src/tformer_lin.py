@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import math
 from einops import rearrange
 from huggingface_hub import PyTorchModelHubMixin
 
@@ -95,9 +96,15 @@ class ViS(nn.Module, PyTorchModelHubMixin):
         self.device = device
 
     def forward(self, x):
-        
         #pe = posemb_sincos_2d(x)
-        x = rearrange(x, 'b ... d -> b (...) d') + self.pos_emb1D
+        x = rearrange(x, 'b ... d -> b (...) d')
+        n_tokens = x.shape[1]
+        pos = self.pos_emb1D
+        if pos.size(0) != n_tokens:
+            reps = math.ceil(n_tokens / pos.size(0))
+            pos = pos.repeat(reps, 1)[:n_tokens, :].to(x.device)
+        # pos shape (n_tokens, input_dim) -> add to x (batch, n_tokens, input_dim)
+        x = x + pos.unsqueeze(0)
 
         x = self.transformer(x)
         x = x.mean(dim = 1)

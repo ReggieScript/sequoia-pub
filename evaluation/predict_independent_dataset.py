@@ -2,8 +2,15 @@ import os
 import json
 import argparse
 import pickle
+import sys
 from torch.utils.data import DataLoader
 import torch.nn as nn
+import numpy as np
+import torch
+import pandas as pd
+
+# Add parent directory to path so imports work regardless of where script is called from
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from src.read_data import SuperTileRNADataset
 from src.utils import filter_no_features, custom_collate_fn
@@ -21,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--depth', type=int, default=6, help='Transformer depth')
     parser.add_argument('--num-heads', type=int, default=16, help='Number of attention heads')
-    parser.add_argument('--tcga_project', default=None, type=str, default='', help='The tcga_project we want to use')
+    parser.add_argument('--tcga_project', type=str, default='', help='The tcga_project we want to use')
     parser.add_argument('--save_dir', type=str, default='', help='Where to save results')
     parser.add_argument('--exp_name', type=str, default='exp', help='Experiment name')
 
@@ -48,7 +55,7 @@ if __name__ == '__main__':
     df = filter_no_features(df, feature_path = args.feature_path, feature_name = args.feature_use)
     genes = [c[4:] for c in df.columns if "rna_" in c]
     if 'tcga_project' in df.columns and args.tcga_project:
-        df = df[df['tcga_project'].isin(args.tcga_project)].reset_index(drop=True)
+        df = df[df['tcga_project'].isin([args.tcga_project])].reset_index(drop=True)
     
     # init test dataloader
     test_dataset = SuperTileRNADataset(df, args.feature_path, args.feature_use)

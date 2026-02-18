@@ -90,7 +90,7 @@ class Transformer(nn.Module):
 
 class ViT(nn.Module):
     def __init__(self, *, num_outputs, dim, depth, heads, mlp_dim, dim_head = 64,
-                 num_clusters=100, device='cuda'):
+                 num_clusters=100, device=None):
         super().__init__()
 
         self.pos_emb1D = nn.Parameter(torch.randn(num_clusters, dim))
@@ -102,7 +102,28 @@ class ViT(nn.Module):
             nn.LayerNorm(dim),
             nn.Linear(dim, num_outputs)
         )
-        self.device = device
+        # Resolve device to a torch.device with safe CPU fallback when CUDA isn't available
+        if device is None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            if isinstance(device, str):
+                if device.startswith('cuda') and not torch.cuda.is_available():
+                    print('CUDA requested but not available — falling back to CPU.')
+                    self.device = torch.device('cpu')
+                else:
+                    self.device = torch.device(device)
+            elif isinstance(device, torch.device):
+                if device.type == 'cuda' and not torch.cuda.is_available():
+                    print('CUDA device provided but not available — falling back to CPU.')
+                    self.device = torch.device('cpu')
+                else:
+                    self.device = device
+            else:
+                # Fallback: attempt to construct a torch.device from the given input
+                try:
+                    self.device = torch.device(device)
+                except Exception:
+                    self.device = torch.device('cpu')
 
     def forward(self, x):
         #pe = posemb_sincos_2d(x)
@@ -157,8 +178,12 @@ def train(model, dataloaders, optimizer, accelerator=None,
 
             for s, (image, rna_data, _, _) in enumerate(dataloaders[phase]):
                 if image == []: continue
-                image = image.to(model.device)
-                rna_data = rna_data.to(model.device)
+                try:
+                    dev = next(model.parameters()).device
+                except StopIteration:
+                    dev = torch.device('cpu')
+                image = image.to(dev)
+                rna_data = rna_data.to(dev)
 
                 with torch.set_grad_enabled(phase == 'train'):
                     pred = model(image)
@@ -256,8 +281,18 @@ def evaluate(model, dataloader, run=None, verbose=True, suff=''):
 
         if image == []: continue
 
-        image = image.to(model.device)
-        rna_data = rna_data.to(model.device)
+        # project feature dim to model expected dim if necessary
+        if hasattr(model, 'pos_emb1D') and image.shape[-1] != model.pos_emb1D.shape[1]:
+            if not hasattr(model, 'feature_proj') or model.feature_proj.weight.shape[1] != image.shape[-1]:
+                model.feature_proj = nn.Linear(image.shape[-1], model.pos_emb1D.shape[1]).to(device=next(model.parameters()).device)
+            image = model.feature_proj(image)
+
+        try:
+            dev = next(model.parameters()).device
+        except StopIteration:
+            dev = torch.device('cpu')
+        image = image.to(dev)
+        rna_data = rna_data.to(dev)
         wsis.append(wsi_file_name)
         projs.append(tcga_project)
 
@@ -289,7 +324,6 @@ def evaluate(model, dataloader, run=None, verbose=True, suff=''):
     projs = np.concatenate((projs), axis=0)
 
     return preds, real, wsis, projs
-
 def predict(model, dataloader, run=None, verbose=True):
     model.eval()
     preds = []
@@ -297,7 +331,18 @@ def predict(model, dataloader, run=None, verbose=True):
     projs = []
     for image, rna_data, wsi_file_name, tcga_project in tqdm(dataloader):
         if image == []: continue
-        image = image.to(model.device)
+
+        # project feature dim to model expected dim if necessary
+        if hasattr(model, 'pos_emb1D') and image.shape[-1] != model.pos_emb1D.shape[1]:
+            if not hasattr(model, 'feature_proj') or model.feature_proj.weight.shape[1] != image.shape[-1]:
+                model.feature_proj = nn.Linear(image.shape[-1], model.pos_emb1D.shape[1]).to(device=next(model.parameters()).device)
+            image = model.feature_proj(image)
+
+        try:
+            dev = next(model.parameters()).device
+        except StopIteration:
+            dev = torch.device('cpu')
+        image = image.to(dev)
         wsis.append(wsi_file_name)
         projs.append(tcga_project)
 

@@ -10,10 +10,11 @@ import h5py
 
 
 class SuperTileRNADataset(Dataset):
-    def __init__(self, csv_path: str, features_path, quick=None):
+    def __init__(self, csv_path: str, features_path, feature_use, quick=None):
         self.csv_path = csv_path
         self.quick = quick
         self.features_path = features_path
+        self.feature_use = feature_use
         if type(csv_path) == str:
             self.data = pd.read_csv(csv_path)
         else:

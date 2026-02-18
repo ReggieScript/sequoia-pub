@@ -3,6 +3,7 @@ import json
 import argparse
 import pickle
 from tqdm import tqdm
+import sys
 
 import numpy as np
 import torch
@@ -12,6 +13,9 @@ import timm
 from PIL import Image
 
 import pdb
+
+# Add parent directory to path so imports work regardless of where script is called from
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
 
 from src.read_data import *
 from src.resnet import resnet50
