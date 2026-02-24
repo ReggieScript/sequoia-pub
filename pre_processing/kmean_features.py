@@ -7,6 +7,7 @@ import sys
 
 import numpy as np
 import h5py
+import torch
 from sklearn.cluster import KMeans
 
 # Add parent directory to path so imports work regardless of where script is called from
@@ -22,6 +23,8 @@ if __name__ == '__main__':
     parser.add_argument('--feature_path', type=str, default="/examples/features", help='Output directory to save features')
     parser.add_argument('--num_clusters', type=int, default=100,
                         help='Number of clusters for the kmeans')
+    parser.add_argument('--feat_type', type=str, default='resnet',
+                        help='Feature type to cluster: "resnet" or "uni"')
     parser.add_argument("--tcga_projects", help="the tcga_projects we want to use",
                         default=None, type=str, nargs='*')
     parser.add_argument('--start', type=int, default=0,
@@ -76,14 +79,16 @@ if __name__ == '__main__':
 
         path = os.path.join(args.feature_path, project, WSI)
         try:
-            f = h5py.File(os.path.join(path,WSI+'.h5'), "r+")
+            f = h5py.File(os.path.join(path, WSI + '.h5'), "r+")
         except:
             print(f'Cannot open file {path}')
             continue
+
+        features_key = f"{args.feat_type}_features"
         try:
-            features = f['resnet_features']
-        except:
-            print(f'No resnet features for {path}')
+            features = f[features_key]
+        except Exception:
+            print(f'No {features_key} for {path}')
             f.close()
             continue
 

@@ -1,4 +1,6 @@
 import os
+import sys
+import pickle
 import argparse
 from tqdm import tqdm
 import json
@@ -6,7 +8,15 @@ import numpy as np
 import pandas as pd
 from einops import rearrange
 
-from scipy.ndimage.morphology import binary_dilation
+from scipy.ndimage import binary_dilation
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Also add repository sequoia source directories so imports that use the
+# top-level `src` package resolve (e.g. `from src.read_data import ...`).
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.insert(0, os.path.join(repo_root, 'src', 'sequoia', 'src'))
+sys.path.insert(0, os.path.join(repo_root, 'src', 'sequoia'))
 import openslide
 from PIL import Image
 import timm
@@ -115,6 +125,9 @@ if __name__=='__main__':
     parser.add_argument('--model_type', type=str, help='model to use:  "he2rna", "vit" or "vis"')
     parser.add_argument('--feat_type', type=str, help='"resnet" or "uni"')
     parser.add_argument('--folds', type=str, help='folds to use in prediction split by comma', default='0,1,2,3,4')
+    # parser.add_argument('--checkpoint_dir', type=str, default='', help='path to checkpoint directory containing test_results.pkl and model files')
+    parser.add_argument('--mask_path', type=str, default='', help='path to mask directory (should contain a .npy mask for the WSI)')
+    parser.add_argument('--slide_path', type=str, default='', help='path to slide directory (should contain the WSI)')
     args = parser.parse_args()
 
     ############################## general 
@@ -123,9 +136,14 @@ if __name__=='__main__':
     assert args.model_type in ['vit', 'vis', 'he2rna']
 
     ############################## get model
-    checkpoint = f'{args.model_type}_{args.feat_type}/{study}/'
-    obj = read_pickle(checkpoint + 'test_results.pkl')[0]
-    gene_ids = obj['genes']
+    # checkpoint = f'{args.model_type}_{args.feat_type}/{study}/'
+    # obj = read_pickle(checkpoint + 'test_results.pkl')[0]
+    # gene_ids = obj['genes']
+    # ensure gene_ids is a plain Python list of stripped strings so .index() works
+    gene_ids = pd.read_csv('/Users/reginacrespo/Documents/Biostadistics and data Science/Thesis/master-thesis/external/sequoia-pub/examples/gene_list.csv')['gene']
+    gene_ids = gene_ids.astype(str).str.strip().tolist()
+    print(f'Loaded {len(gene_ids)} gene_ids, sample: {gene_ids[:5]}')
+
 
     ############################## prepare data
     stride = 1 
@@ -146,8 +164,10 @@ if __name__=='__main__':
         
     # prepare and load WSI
     if 'TCGA' in wsi_file_name:
-        slide_path = './TCGA/'+project+'/'
-        mask_path = './TCGA/'+project+'_Masks/'
+        # slide_path = './TCGA/'+project+'/'
+        # mask_path = './TCGA/'+project+'_Masks/'
+        slide_path = args.slide_path
+        mask_path = args.mask_path
         mask = np.load(mask_path+wsi_file_name.replace('.svs', '')+'/'+'mask.npy')
         manual_resize = None # nr of um/px can be read from slide properties
     elif project == 'spatial_GBM_pred':
@@ -170,7 +190,8 @@ if __name__=='__main__':
         exit()
     
     # load wsi and calculate patch size in original image (coordinates are at level 0 for openslide) and in mask
-    slide = openslide.OpenSlide(slide_path + wsi_file_name)
+    print(f"loading wsi {slide_path + wsi_file_name}")
+    slide = openslide.OpenSlide(slide_path + wsi_file_name + ".svs")
     downsample_factor = int(slide.dimensions[0]/mask.shape[0]) # mask downsample factor
     slide_dim0, slide_dim1 = slide.dimensions[0], slide.dimensions[1]
 
@@ -216,6 +237,18 @@ if __name__=='__main__':
         ])
         feat_model = resnet50(pretrained=True).to(device)
         feat_model.eval()
+    elif args.feat_type == 'uni':
+        local_dir = "./models/uni" # add dir for saved model
+        feat_model = timm.create_model("hf-hub:MahmoodLab/uni", pretrained=True, init_values=1e-5, dynamic_img_size=True)
+        # if you have a local checkpoint, uncomment and adjust the line below
+        # feat_model.load_state_dict(torch.load(os.path.join(local_dir, "pytorch_model.bin"), map_location=device), strict=True)
+        feat_model = feat_model.to(device)
+        transforms_ = transforms.Compose([
+            transforms.Resize(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ])
+        feat_model.eval()
     else:
         feat_model = timm.create_model("vit_large_patch16_224", img_size=224, 
                                         patch_size=16, init_values=1e-5, 
@@ -238,27 +271,31 @@ if __name__=='__main__':
 
     for fold in folds:
 
-        fold_ckpt = checkpoint + 'model_best_' + str(fold) + '.pt'
-        if (fold == 0) and ((args.model_type == 'vit') or (args.model_type == 'vis')):
-            fold_ckpt = fold_ckpt.replace('_0','')
+        # fold_ckpt = checkpoint + 'model_best_' + str(fold) + '.pt'
+        # if (fold == 0) and ((args.model_type == 'vit') or (args.model_type == 'vis')):
+        #     fold_ckpt = fold_ckpt.replace('_0','')
 
         input_dim = 2048 if args.feat_type == 'resnet' else 1024
-        if args.model_type == 'vit':
-            model = ViT(num_outputs=len(gene_ids), 
-                            dim=input_dim, depth=6, heads=16, mlp_dim=2048, dim_head = 64)
-            model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)))
-        elif args.model_type == 'he2rna':
-            model = HE2RNA(input_dim=input_dim, layers=[256,256],
-                                ks=[1,2,5,10,20,50,100],
-                                output_dim=len(gene_ids), device=device)
-            fold_ckpt = fold_ckpt.replace('best_','')
-            model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)).state_dict())
-        elif args.model_type == 'vis':
-            model = ViS(num_outputs=len(gene_ids), 
-                        input_dim=input_dim, 
-                        depth=6, nheads=16,  
-                        dimensions_f=64, dimensions_c=64, dimensions_s=64, device=device)
-            model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)))
+        # if args.model_type == 'vit':
+        #     model = ViT(num_outputs=len(gene_ids), 
+        #                     dim=input_dim, depth=6, heads=16, mlp_dim=2048, dim_head = 64)
+        #     model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)))
+        # elif args.model_type == 'he2rna':
+        #     model = HE2RNA(input_dim=input_dim, layers=[256,256],
+        #                         ks=[1,2,5,10,20,50,100],
+        #                         output_dim=len(gene_ids), device=device)
+        #     fold_ckpt = fold_ckpt.replace('best_','')
+        #     model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)).state_dict())
+        # elif args.model_type == 'vis':
+        #     model = ViS(num_outputs=len(gene_ids), 
+        #                 input_dim=input_dim, 
+        #                 depth=6, nheads=16,  
+        #                 dimensions_f=64, dimensions_c=64, dimensions_s=64, device=device)
+        #     model.load_state_dict(torch.load(fold_ckpt, map_location=torch.device(device)))
+
+        cancer = 'brca'
+        i = 0 ## fold number
+        model = ViS.from_pretrained(f"gevaertlab/sequoia-{cancer}-{i}")
 
         model = model.to(device)
         model.eval()

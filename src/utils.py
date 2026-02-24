@@ -26,12 +26,14 @@ def filter_no_features(df, feature_path, feature_name):
     for proj in projects:
         wsis_with_features = os.listdir(os.path.join(feature_path, proj))
         for wsi in wsis_with_features:
+            h5_path = os.path.join(feature_path, proj, wsi, wsi + '.h5')
             try:
-                with h5py.File(os.path.join(feature_path, proj, wsi, wsi+'.h5'), "r") as f:
+                with h5py.File(h5_path, "r") as f:
                     cols = list(f.keys())
                     if feature_name not in cols:
                         remove.append(wsi)
             except Exception as e:
+                print(f'Warning: failed to open HDF5 {h5_path}: {e}')
                 remove.append(wsi)        
         all_wsis_with_features += wsis_with_features
     remove += df[~df['wsi_file_name'].isin(all_wsis_with_features)].wsi_file_name.values.tolist()

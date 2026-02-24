@@ -62,6 +62,14 @@ if __name__ == '__main__':
     if args.feat_type == 'resnet':
         model = resnet50(pretrained=True).to(device)
         model.eval()
+    elif args.feat_type == 'uni':
+        local_dir = "./models/uni" # add dir for saved model
+        model = timm.create_model("hf-hub:MahmoodLab/uni", pretrained=True, init_values=1e-5, dynamic_img_size=True)
+        # model.load_state_dict(torch.load(os.path.join(local_dir, 
+        #                             "pytorch_model.bin"), map_location="cpu"), strict=True)
+        model.to(device)
+        model.eval()
+
     else:
         local_dir = "" # add dir for saved model
         model = timm.create_model("vit_large_patch16_224", img_size=224, patch_size=16, 

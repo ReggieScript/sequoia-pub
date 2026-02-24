@@ -46,7 +46,7 @@ class SuperTileRNADataset(Dataset):
             if 'GTEX' not in path:
                 path = path.replace('.svs','')
             f = h5py.File(path, 'r')
-            features = f['cluster_features'][:]
+            features = f[self.feature_use][:]
             f.close()
             features = torch.tensor(features, dtype=torch.float32)
         except Exception as e:
