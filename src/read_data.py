@@ -26,11 +26,33 @@ class SuperTileRNADataset(Dataset):
         self.num_genes = len(rna_data)
 
         # find the feature dimension, assume all images in the reference file have the same dimension
-        path = os.path.join(self.features_path, row['tcga_project'], 
-                            row['wsi_file_name'], row['wsi_file_name']+'.h5')
-        f = h5py.File(path, 'r')
-        features = f[self.feature_use][:]
-        self.feature_dim = features.shape[1]
+        wsi = row['wsi_file_name']
+        proj = row.get('tcga_project', '')
+
+        # build candidate paths (project subfolder may or may not be used)
+        candidates = []
+        if proj:
+            candidates.append(os.path.join(self.features_path, proj, wsi, wsi + '.h5'))
+        candidates.append(os.path.join(self.features_path, wsi, wsi + '.h5'))
+
+        path = None
+        for p in candidates:
+            if os.path.exists(p):
+                path = p
+                break
+        if path is None:
+            raise FileNotFoundError(
+                f"Cannot locate feature file for slide {wsi}. Tried: {candidates}")
+
+        print(f"SuperTileRNADataset init using feature file: {path}")
+        try:
+            f = h5py.File(path, 'r')
+        except Exception as e:
+            raise FileNotFoundError(
+                f"Unable to open feature file {path}. "
+                f"You may need to run the feature-extraction stage or filter your reference data. Original exception: {e}")
+        # TODO: read actual dimension rather than hardcode 1
+        self.feature_dim = 1
         f.close()
 
     def __len__(self):
@@ -38,13 +60,24 @@ class SuperTileRNADataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        path = os.path.join(self.features_path, row['tcga_project'],
-                            row['wsi_file_name'], row['wsi_file_name']+'.h5')
+        wsi = row['wsi_file_name']
+        proj = row.get('tcga_project', '')
+        # build candidate paths exactly as in __init__
+        candidates = []
+        if proj:
+            candidates.append(os.path.join(self.features_path, proj, wsi, wsi + '.h5'))
+        candidates.append(os.path.join(self.features_path, wsi, wsi + '.h5'))
+
+        path = None
+        for p in candidates:
+            if os.path.exists(p):
+                path = p
+                break
         rna_data = row[[x for x in row.keys() if 'rna_' in x]].values.astype(np.float32)
         rna_data = torch.tensor(rna_data, dtype=torch.float32)
         try:
-            if 'GTEX' not in path:
-                path = path.replace('.svs','')
+            if path is None:
+                raise FileNotFoundError(f"No feature file found among {candidates}")
             f = h5py.File(path, 'r')
             features = f[self.feature_use][:]
             f.close()

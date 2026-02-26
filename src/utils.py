@@ -19,25 +19,41 @@ def custom_collate_fn(batch):
 
 
 def filter_no_features(df, feature_path, feature_name):
+    """Remove rows whose feature HDF5 is missing or lacks the requested key.
+
+    The project/slide layout is used by ``sequoia_script`` when saving features.
+    """
     print(f'Filtering WSIs that do not have {feature_name} features')
-    projects = np.unique(df.tcga_project)
-    all_wsis_with_features = []
     remove = []
-    for proj in projects:
-        wsis_with_features = os.listdir(os.path.join(feature_path, proj))
-        for wsi in wsis_with_features:
-            h5_path = os.path.join(feature_path, proj, wsi, wsi + '.h5')
-            try:
-                with h5py.File(h5_path, "r") as f:
-                    cols = list(f.keys())
-                    if feature_name not in cols:
-                        remove.append(wsi)
-            except Exception as e:
-                print(f'Warning: failed to open HDF5 {h5_path}: {e}')
-                remove.append(wsi)        
-        all_wsis_with_features += wsis_with_features
-    remove += df[~df['wsi_file_name'].isin(all_wsis_with_features)].wsi_file_name.values.tolist()
+
+    for _, row in df.iterrows():
+        wsi = row['wsi_file_name']
+        proj = row.get('tcga_project', '')
+
+        # possible locations
+        candidates = []
+        if proj:
+            candidates.append(os.path.join(feature_path, proj, wsi, wsi + '.h5'))
+        candidates.append(os.path.join(feature_path, wsi, wsi + '.h5'))
+
+        found = False
+        for h5_path in candidates:
+            if os.path.exists(h5_path):
+                try:
+                    with h5py.File(h5_path, 'r') as f:
+                        if feature_name in f.keys():
+                            found = True
+                            break
+                        else:
+                            print(f"{wsi}: missing key {feature_name} in {h5_path}")
+                except Exception as e:
+                    print(f'Warning: failed to open HDF5 {h5_path}: {e}')
+        if not found:
+            remove.append(wsi)
+
     print(f'Original shape: {df.shape}')
+    if remove:
+        print(f'Removing {len(remove)} slides with no features or missing key: {remove}')
     df = df[~df['wsi_file_name'].isin(remove)].reset_index(drop=True)
     print(f'New shape: {df.shape}')
     return df
